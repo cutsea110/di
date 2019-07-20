@@ -75,8 +75,18 @@ testMockDS = runMockDS $ upsert "key" "value"
 testIORefDS :: IO ()
 testIORefDS = do
   ref <- newIORef ([] :: [(Key, Value)])
-  runIORefDS ref $ upsert "key" "value"
-  v <- readIORef ref
+  v <- runIORefDS ref $ do
+    upsert "key" "value"
+    read "key"   
+  print v
+  return ()
+
+testRedisDS :: IO ()
+testRedisDS = do
+  conn <- Redis.checkedConnect Redis.defaultConnectInfo
+  v <- runRedis conn $ do
+    upsert "key" "value"
+    read "key"
   print v
   return ()
 
@@ -86,3 +96,5 @@ main = do
   testMockDS
   print "testing mockIORefDS"
   testIORefDS
+  print "testing mockRedisDS"
+  testRedisDS
