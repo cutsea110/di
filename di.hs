@@ -5,10 +5,15 @@ module Main where
 
 import Prelude hiding (read)
 import Control.Monad.Reader
+import Control.Lens
+import Data.Aeson hiding (Value)
+import qualified Data.Aeson as Aeson
+import Data.Aeson.Lens
 import qualified Database.Redis as Redis
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BC
 import Data.IORef
+import Network.HTTP.Conduit
 
 type Key   = BS.ByteString
 type Value = BS.ByteString
@@ -86,7 +91,21 @@ instance BitcoinSYM IO where
 runMockBTC :: IO a -> IO a
 runMockBTC = id
 
+testMockBTC :: IO ()
 testMockBTC = runMockBTC saveBTCPrice
+
+type BitFlyer = ReaderT Manager IO
+
+getBitFlyerBTCPrice :: Manager -> IO Price
+getBitFlyerBTCPrice manager = do
+  body <- responseBody <$> httpLbs "https://api.bitflyer.jp/v1/ticker" manager
+  pure $ (decode body :: Maybe Aeson.Value) ^?! _Just . key "ltp" . _Double
+
+instance BitcoinSYM BitFlyer where
+  getPrice = ask >>= (\manager -> liftIO $ getBitFlyerBTCPrice manager)
+
+runBitFlyer :: Manager -> BitFlyer a -> IO a
+runBitFlyer manager dsl = runReaderT dsl manager
 
 testMockDS :: IO ()
 testMockDS = runMockDS $ upsert "key" "value"
