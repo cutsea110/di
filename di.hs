@@ -7,6 +7,7 @@ import Prelude hiding (read)
 import Control.Monad.Reader
 import qualified Database.Redis as Redis
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BC
 import Data.IORef
 
 type Key   = BS.ByteString
@@ -69,6 +70,24 @@ instance DataStoreSYM Redis.Redis where
 runRedis :: Redis.Connection -> Redis.Redis a -> IO a
 runRedis conn redis = Redis.runRedis conn redis
 
+type Price = Double
+
+class Monad repr => BitcoinSYM repr where
+  getPrice :: repr Price
+
+saveBTCPrice :: (BitcoinSYM repr, DataStoreSYM repr) => repr ()
+saveBTCPrice = do
+  price <- getPrice
+  upsert "BTC Price" (BC.pack $ show price)
+
+instance BitcoinSYM IO where
+  getPrice = putStrLn "Get BTC Price" >> pure 1000000.0
+
+runMockBTC :: IO a -> IO a
+runMockBTC = id
+
+testMockBTC = runMockBTC saveBTCPrice
+
 testMockDS :: IO ()
 testMockDS = runMockDS $ upsert "key" "value"
 
@@ -98,3 +117,5 @@ main = do
   testIORefDS
   print "testing mockRedisDS"
   testRedisDS
+  print "testing mockBTC"
+  testMockBTC
