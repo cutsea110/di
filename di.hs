@@ -67,6 +67,30 @@ runIORefDS ref = iterT interpret
     interpret (Update k v r) = r =<< liftIO (modifyIORef ref (updateList k v))
     interpret (Delete k   r) = r =<< liftIO (modifyIORef ref (deleteList k))
 
+type Price = Double
+
+-- | bitFlyerのAPIからビットコインの時価を取得するプログラム
+getBitFlyerBitcoinPrice :: Manager -> IO Price
+getBitFlyerBitcoinPrice manager = do
+  body <- responseBody <$> httpLbs "https://api.bitflyer.jp/v1/ticker" manager
+  pure $ (decode body :: Maybe Aeson.Value) ^?! _Just . key "ltp" . _Double
+
+data BitcoinF a = GetPrice (Price -> a) deriving Functor
+type BitcoinT m = FreeT BitcoinF m
+
+getPrice :: MonadFree BitcoinF m => m Price
+getPrice = liftF $ GetPrice id
+
+saveBTCPrice :: DataStoreT (BitcoinT IO) ()
+saveBTCPrice = do
+  price <- lift $ getPrice
+  upsert "BTC Price" (BS.pack $ show price)
+
+runBitFlyer :: MonadIO io => Manager -> BitcoinT io a -> io a
+runBitFlyer manager = iterT interpret
+  where
+    interpret (GetPrice r) = r =<< (liftIO $ getBitFlyerBitcoinPrice manager)
+
 action :: (MonadFree DataStoreF m, MonadIO m) => m ()
 action = do
   upsert "key" "value"
@@ -81,8 +105,18 @@ testIORefDS = do
   ref <- newIORef ([] :: [(Key, Value)])
   runIORefDS ref action
 
+testBitcoinDS :: IO ()
+testBitcoinDS = do
+  manager <- newManager tlsManagerSettings
+  ref     <- newIORef ([] :: [(Key, Value)])
+  runBitFlyer manager . runIORefDS ref $ saveBTCPrice
+  v <- readIORef ref
+  print v
+
 main = do
   print "testing MockDS"
   testMockDS
   print "testing IORefDS"
   testIORefDS
+  print "testing BitcoinDS"
+  testBitcoinDS
