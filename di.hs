@@ -45,4 +45,44 @@ upsert k v = do
     Just _  -> update k v
     Nothing -> create k v
 
-main = print "Hello"
+runMockDS :: MonadIO io => DataStoreT io a -> io a
+runMockDS = iterT interpret
+  where
+    interpret (Create k v r) = r =<< liftIO (BS.putStrLn $ BS.concat ["Create: ", k, ", ", v])
+    interpret (Read   k   r) = r =<< liftIO (Nothing <$ (BS.putStrLn $ BS.concat ["Read: ", k]))
+    interpret (Update k v r) = r =<< liftIO (BS.putStrLn $ BS.concat ["Update: ", k, ", ", v])
+    interpret (Delete k   r) = r =<< liftIO (BS.putStrLn $ BS.concat ["Delete: ", k])
+
+updateList :: Eq k => k -> v -> [(k, v)] -> [(k, v)]
+updateList k v = map (\r@(k', _) -> if k' == k then (k, v) else r)
+
+deleteList :: Eq k => k -> [(k, v)] -> [(k, v)]
+deleteList k = filter (\(k', _) -> k' /= k)
+
+runIORefDS :: MonadIO io => IORef [(Key, Value)] -> DataStoreT io a -> io a
+runIORefDS ref = iterT interpret
+  where
+    interpret (Create k v r) = r =<< liftIO (modifyIORef ref ((k, v):))
+    interpret (Read   k   r) = r =<< liftIO (lookup k <$> readIORef ref)
+    interpret (Update k v r) = r =<< liftIO (modifyIORef ref (updateList k v))
+    interpret (Delete k   r) = r =<< liftIO (modifyIORef ref (deleteList k))
+
+action :: (MonadFree DataStoreF m, MonadIO m) => m ()
+action = do
+  upsert "key" "value"
+  v <- read "key"
+  liftIO $ print v
+
+testMockDS :: IO ()
+testMockDS = runMockDS action
+
+testIORefDS :: IO ()
+testIORefDS = do
+  ref <- newIORef ([] :: [(Key, Value)])
+  runIORefDS ref action
+
+main = do
+  print "testing MockDS"
+  testMockDS
+  print "testing IORefDS"
+  testIORefDS
